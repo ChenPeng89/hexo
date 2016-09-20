@@ -1,7 +1,7 @@
----
+﻿---
 title: Mybatis学习笔记：二、Configuration
 date: 2016-05-31 13:30:39
-tags: [Mybatis , Configuration ]
+tags: Mybatis
 ---
 ## 简介
 Configuration中包含了Mybatis的大部分配置信息，它为我们提供了设置的方法。下面是一个简单的配置样例。

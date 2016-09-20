@@ -1,7 +1,7 @@
----
+﻿---
 title: Solr学习笔记：三、使用Solr管理员界面
 date: 2016-06-24 10:14:30
-tags: [Solr , Solr Administration User Interface]
+tags: Solr
 ---
 本节主要介绍的是Solr的管理员界面（Admin UI）使用方法。
 ## 简介

@@ -1,7 +1,7 @@
----
+﻿---
 title: Mybatis学习笔记：三、映射
 date: 2016-05-31 19:04:10
-tags: [Mybatis , 映射 ]
+tags: Mybatis 
 ---
 
 ## 简介

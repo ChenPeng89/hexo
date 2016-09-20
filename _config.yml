@@ -7,7 +7,7 @@ title: "ChenPeng's Blog"
 subtitle:
 description:
 author: ChenPeng
-language: zh-CN
+language: zh-Hans
 timezone: 
 
 # URL
@@ -63,7 +63,7 @@ pagination_dir: page
 # Extensions
 ## Plugins: https://hexo.io/plugins/
 ## Themes: https://hexo.io/themes/
-theme: huno
+theme: next
 
 # Deployment
 ## Docs: https://hexo.io/docs/deployment.html
@@ -74,9 +74,9 @@ deploy:
   
 #pinglun
 # Disqus
-disqus_shortname: httpchenpeng89githubio
-
+#disqus_shortname: httpchenpeng89githubio
+disqus_shortname:
 # Social Icon
 social:
-  github: ChenPeng89
+  GitHub: https://github.com/chenpeng89
   

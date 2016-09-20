@@ -1,7 +1,7 @@
----
+﻿---
 title: Redis持久化策略
 date: 2016-07-07 10:24:32
-tags: [Redis , 持久化]
+tags: Redis
 ---
 Redis提供了两种持久化策略，一种是快照方式（point-in-time snapshot），另一种是只追加文件（append-only file）方式。
 

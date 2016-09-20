@@ -1,7 +1,7 @@
----
+﻿---
 title: 'Solr学习笔记：二、Document、Field和Schema的设计'
 date: 2016-06-29 09:28:58
-tags: [Solr , Documents, Fields, Schema Design]
+tags: Solr
 ---
 ## 前言
 Solr的工作流程很简单。你先给它添加你想要知道的信息，然后问它要。你给它信息的过程叫 indexing 或者 updating。你问它要信息的过程叫 query。Solr可以在schema为实体的不同变量、类型建立索引。

@@ -1,7 +1,7 @@
----
+﻿---
 title: Mybatis学习笔记：四、动态SQL
 date: 2016-06-03 13:46:20
-tags: [Mybatis , 动态SQL]
+tags: Mybatis
 ---
 ## 简介
 Mybatis另一个重要的特性就是动态SQL，利用这一特性，可以简化Java代码。

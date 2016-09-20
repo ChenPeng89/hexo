@@ -1,7 +1,7 @@
----
+﻿---
 title: Nginx学习笔记：五、负载均衡
 date: 2016-07-18 11:31:02
-tags: [Nginx , 负载均衡]
+tags: Nginx
 ---
 
 ## HTTP 负载均衡

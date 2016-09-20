@@ -1,7 +1,7 @@
----
+﻿---
 title: mybatis-generator自动生成dao，mapper，mode
 date: 2016-05-30 16:31:48
-tags: mybatis-generator
+tags: Mybatis
 ---
 ## 添加插件依赖
 
