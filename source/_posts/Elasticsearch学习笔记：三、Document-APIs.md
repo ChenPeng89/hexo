@@ -169,7 +169,39 @@ $ curl -XPUT 'http://localhost:9200/twitter/tweet/1?timeout=5m' -d '{
 上例中，设置等待5分钟。
 
 ## Get API
-//TODO
+get API 允许通过id来从index中查找相应的JSON文档：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1'
+```
+返回结果为：
+```
+{
+  "_index": "twitter",
+  "_type": "tweet",
+  "_id": "1",
+  "_version": 5,
+  "found": true,
+  "_source": {
+    "user": "kimchy",
+    "postDate": "2009-11-15T14:12:12",
+    "message": "trying out Elasticsearch"
+  }
+}
+```
+
+可以通过HEAD来查询文档是否存在：
+```
+curl -XHEAD -i 'http://localhost:9200/twitter/tweet/1'
+```
+返回结果可以通过 http status来判断，200 -- 存在，404则不存在。
+
+### 实时性
+一般来说，get API是实时的，它不会被index的刷新频率所影响（当数据变得可搜索后）。
+
+为了关闭实时性，可以传入 realtime参数为false，或者全局设置 action.get.realtime为false。
+
+
+ 
 
 
 
