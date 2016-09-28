@@ -305,3 +305,68 @@ get操作被散列到一个特定的分片id。然后根据分片id直接请求�
 ### 版本支持
 当指定的version参数和当前版本一致时，可以获取文档。当版本类型为FORCE的时候，所有的版本类型都可以检索文档。
 在删除一个文档后，es在内部并不立即删除这个文档，而是将它标记起来，当然， 你也不能进行访问。es会在后台逐渐清理掉这些文档。
+
+## Delete API
+delete API允许通过指定的id来删除对应的文档。
+```
+$ curl -XDELETE 'http://localhost:9200/twitter/tweet/1'
+```
+返回:
+```
+{
+    "_shards" : {
+        "total" : 10,
+        "failed" : 0,
+        "successful" : 10
+    },
+    "found" : true,
+    "_index" : "twitter",
+    "_type" : "tweet",
+    "_id" : "1",
+    "_version" : 2
+}
+```
+
+### 版本号
+每个文档的索引都是有版本号的。当删除文档时，需要指定文档的version，并且在我们要进行删除操作时，版本号不能被其它的程序改变，因为更新等操作都会引起版本号的改变。
+
+### 路由
+也可以指定路由来进行删除，路有错误的话会导致删除失败。
+```
+$ curl -XDELETE 'http://localhost:9200/twitter/tweet/1?routing=kimchy'
+```
+
+### Parent
+删除操作也可以指定父文档。再删除父文档的时候，不会删除子文档。有一种删除子文档的方法，就是使用delete-by-query。
+
+### 自动创建索引
+在执行删除操作时，如果当前索引不存在，则会自动创建一个索引，同时自动创建一个指定的type。
+
+### 分布式
+和get API中的意思差不多。
+
+### 写一致性
+操作是否能成功执行，是由对应的组里面的可用的分片备份数量决定的。这个值可以是one, quorum 和 all。可以用consistency 请求参数来设置。节点级的设置是在 action.write_consistency ， 默认是quorum。
+
+### 刷新
+refresh参数设置为true，可以在删除操作执行后，立即刷新分片，保证其数据可以立即被查询。不过要慎用！
+
+### 超时时间
+当分片不可用的时候，删除操作会等待一段时间执行。可以设置其timeout。
+```
+$ curl -XDELETE 'http://localhost:9200/twitter/tweet/1?timeout=5m'
+```
+
+## Update API
+updateAPI 允许通过脚本来更新文档。它使用版本管理来控制在get和reindex时不会有更新操作。
+注意，update这个操作是重新索引文档，它只是减少了网络影响和版本冲突。
+
+首先，创建一个索引文档：
+```
+curl -XPUT localhost:9200/test/type1/1 -d '{
+    "counter" : 1,
+    "tags" : ["red"]
+}'
+```
+
+### 使用脚本更新
