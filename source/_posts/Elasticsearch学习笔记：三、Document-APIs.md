@@ -200,8 +200,108 @@ curl -XHEAD -i 'http://localhost:9200/twitter/tweet/1'
 
 为了关闭实时性，可以传入 realtime参数为false，或者全局设置 action.get.realtime为false。
 
+### 可选择的Type
+get API可以将_type作为可选项。设置为_all会获取所有符合id的type。
 
- 
+### Source过滤器
+一般情况下，get操作都会返回_source内容，除非你设置了fields参数或者关闭_source字段。
+不返回_source字段：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1?_source=false'
+```
+如果你只需要一两个字段的话，你可以使用_source_include 或 _source_exclude参数来设置。这对于大文档的检索是非常有益的，它可以减少网络中的传输字节数。
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1?_source_include=*ser&_source_exclude=message'
+```
+返回结果为：
+```
+{
+  "_index": "twitter",
+  "_type": "tweet",
+  "_id": "1",
+  "_version": 5,
+  "found": true,
+  "_source": {
+    "user": "kimchy"
+  }
+}
+```
+如果仅仅设置include，可以这样：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1?_source_include=*ser,message'
+```
 
+### Fields
+get操作可以通过fields参数来指定返回的字段：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1?fields=user,message'
+```
+返回：
+```
+{
+  "_index": "twitter",
+  "_type": "tweet",
+  "_id": "1",
+  "_version": 5,
+  "found": true,
+  "fields": {
+    "message": [
+      "trying out Elasticsearch"
+    ],
+    "user": [
+      "kimchy"
+    ]
+  }
+}
+```
+为了向后兼容，如果请求的字段没有存储，它们将从_source中被解析和提取。这个方法会被source过滤器的参数所覆盖。
+被请求的字段的值将会以数组形式返回。元数据字段，像_routing或者_parent字段则永远不会以数组形式返回。
 
+### 生成的字段
+如果在indexing后没有刷新，GET将会通过translog日志来查询文档。然而，一些字段只有在indexing时才生成。如果你想要获取索引中的字段，就会产生异常。可以设置来ignore_erros_on_generated_fields=true忽视异常。
 
+translog是一个操作日志。每次进行索引操作后，数据变动都会先存在translog中，之后再刷新到es中。实时查询，其实是读取了translog中还未持久化的数据。
+
+### 只返回_source
+使用 /{index}/{type}/{id}/_source 可以只返回_source字段。
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1/_source'
+```
+返回：
+```
+{
+  "user": "kimchy",
+  "postDate": "2009-11-15T14:12:12",
+  "message": "trying out Elasticsearch"
+}
+```
+当然，还可以指定返回的字段：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1/_source?_source_include=*ser&_source_exclude=message'
+```
+使用HEAD方式请求也可以判断文档是否存在:
+```
+curl -XHEAD -i 'http://localhost:9200/twitter/tweet/1/_source'
+```
+
+### 路由
+也可以使用路由查询，路由不对的话是查询不到的:
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1?routing=kimchy'
+```
+
+### Preference
+使用preference控制哪个分片来执行get请求。一般情况下，get是在分片中随机执行的。
+- primary: 这个操作仅仅会在主分片上执行。
+- local : 这个操作会尽可能的在本地分片上执行。
+- Custom (string) value： 用户可以自定义值，对于相同的分片可以设置相同的值。这样可以保证不同的刷新状态下，查询不同的分片。就像sessionid或者用户名一样。
+
+### 刷新
+refresh参数可以控制在get操作时，执行刷新，使数据可用。将它设为true时会导致每次查询都先进行刷新，这样会影响系统效率。
+
+### 分布式
+get操作被散列到一个特定的分片id。然后根据分片id直接请求其中一个备份，并返回结果。这个备份是由在这个分片id组里面的主分片和它的备份所组成的。这就意味着，备份数量越多，get的扩展性越好。
+
+### 版本支持
+当指定的version参数和当前版本一致时，可以获取文档。当版本类型为FORCE的时候，所有的版本类型都可以检索文档。
+在删除一个文档后，es在内部并不立即删除这个文档，而是将它标记起来，当然， 你也不能进行访问。es会在后台逐渐清理掉这些文档。
