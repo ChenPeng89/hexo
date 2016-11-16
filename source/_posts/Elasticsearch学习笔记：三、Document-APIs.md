@@ -370,3 +370,349 @@ curl -XPUT localhost:9200/test/type1/1 -d '{
 ```
 
 ### 使用脚本更新
+可以通过执行一个脚本来增加counter：
+```
+POST test/type1/1/_update
+{
+    "script" : {
+        "inline": "ctx._source.counter += count",
+        "params" : {
+            "count" : 4
+        }
+    }
+}
+```
+
+或者也可以添加一个tag到tags[]中：
+```
+POST test/type1/1/_update
+{
+    "script" : {
+        "inline": "ctx._source.tags.add(params.tag)",
+        "params" : {
+            "tag" : "blue"
+        }
+    }
+}
+```
+
+除了_source，还可以通过ctx来获得这些变量： _index , _type , _id, _version , _routing , _parent , 和 _now (当前时间戳)。
+
+比如：
+```
+POST test/type1/1/_update
+{
+    "script" : {
+        "inline": "ctx._source.tages.add(ctx._id)"
+    }
+}
+```
+
+
+除此之外，我们还可以为文档添加一个新的字段：
+```
+POST test/type1/1/_update
+{
+    "script" : "ctx._source.new_field = \"value_of_new_field\""
+}
+```
+字段为 new_field ， 且值为value_of_new_field。
+
+也可以删除字段：
+```
+POST test/type1/1/_update
+{
+    "script" : "ctx._source.remove(\"new_field\")"
+}
+```
+
+甚至，我们还可以通过一系列逻辑判断来改变它的操作类型，例子中，如果tags包含 green，则删除文档，否则什么都不做：
+```
+POST test/type1/1/_update
+{
+    "script" : {
+        "inline": "if (ctx._source.tags.contains(tag)) { ctx.op = \"delete\" } else { ctx.op = \"none\" }",
+        "params" : {
+            "tag" : "green"
+        }
+    }
+}
+```
+### 通过文档来更新
+updateAPI还支持传递一部分文档，这部分文档将会被合并到当前文档中，使用doc可以实现简单的递归合并、内部合并、替换KV以及数组。
+```
+POST test/type1/1/_update
+{
+    "doc" : {
+        "name" : "new_name"
+    }
+}
+```
+
+如果 doc 和 script 都被指定了，那么doc会被忽略。最好的方式是将doc的操作也放到 script 中去执行。
+
+### 更新检测
+如果doc中定义的部分与现在的文档相同，则默认不会执行任何动作。设置detect_noop=false，就会无视是否修改，强制合并到现有的文档。
+
+```
+POST test/type1/1/_update
+{
+    "doc" : {
+        "name" : "new_name"
+    }
+}
+```
+上面例子中，执行后的结果如下：
+```
+{
+  "_index": "test",
+  "_type": "type1",
+  "_id": "1",
+  "_version": 9,
+  "_shards": {
+    "total": 0,
+    "successful": 0,
+    "failed": 0
+  }
+}
+```
+如果请求设置了`"detect_noop": false`
+```
+POST test/type1/1/_update
+{
+    "doc" : {
+        "name" : "new_name"
+    },
+    "detect_noop": false
+}
+```
+那么：
+```
+{
+  "_index": "test",
+  "_type": "type1",
+  "_id": "1",
+  "_version": 10,
+  "_shards": {
+    "total": 2,
+    "successful": 1,
+    "failed": 0
+  }
+}
+```
+
+### Upserts
+如果文档不存在，那么upsert 元素的内容将被插入到文档中，如果文档存在，则执行脚本。
+```
+POST test/type1/1/_update
+{
+    "script" : {
+        "inline": "ctx._source.counter += count",
+        "params" : {
+            "count" : 4
+        }
+    },
+    "upsert" : {
+        "counter" : 1
+    }
+}
+```
+
+#### scripted_upsert
+如果你想不管文档存不存在都执行脚本，可以设置 scripted_upsert 为 true。
+```
+POST test/type1/1/_update
+{
+	"scripted_upsert":true,
+    "script" : {
+        "inline": "ctx._source.counter += count",
+        "params" : {
+            "count" : 4
+        }
+    },
+    "upsert" : {
+        "counters" : 1
+    }
+}
+```
+这样，counters不会被插入到文档中，而是只会执行脚本内容。
+
+#### doc_as_upsert
+当使用doc时，如果id为2的文档不存在，那么会报错，而如果使用doc_as_upsert，则可以在文档不存在的时候，把doc中的内容插入到文档中。
+```
+POST test/type1/2/_update
+{
+    "doc" : {
+        "name" : "new_name"
+    },
+    "doc_as_upsert" : true
+}
+```
+
+### 参数
+- retry_on_conflict : 当执行索引和更新的时候，有可能另一个进程正在执行更新。这个时候就会造成冲突，这个参数就是用于定义当遇到冲突时，重试的次数。
+
+- routing ： routing是用来为update请求路由到正确的分片的，并且当文档不存在时进行upsert操作。不能用来更新现有文档的路由。
+
+- parent： parent用来路由到正确的分片，并且当文档不存在时进行upsert操作。不能用来更新现有文档的 parent。如果一个index的路由被指定了，那么它会覆盖parent的路由，并且用新的路由来路由请求。
+
+- timeout ： 用来等待一个分片可用。
+
+- wait_for_active_shards ： 指定在更新操作前，分片副本可用的数量。
+
+- refresh : 当执行操作的时候，会自动刷新索引。
+
+- _source ： 控制被更新的source是否、如何返回。默认情况下，update操作是不返回source的。
+
+-  version & version_type ： updateAPI使用es的版本号来保证文档在update时没有被改变。可以使用 version参数来指定，只有当version号匹配当前版本号时，才能更新成功。你也可以使用 force 参数来强制指定版本号来更新，不过这一般用于版本修正。
+
+更新操作是不支持外部版本号的，因为本来外部版本号就脱离系统的版本控制，如果再执行更新操作，那就彻底乱了。如果使用了外部版本号，可以使用Index代替更新操作，重新索引文档。
+
+## Update By Query API
+update By Query API 是一个新的功能，尚需实践检验，因此，以后可能会有所修改，并且不向后兼容。
+
+这个api会更新索引中的每一个文档并且不改变它们的source。
+```
+POST twitter/_update_by_query?conflicts=proceed
+```
+执行结果为：
+```
+{
+  "took": 2549,
+  "timed_out": false,
+  "total": 3,
+  "updated": 3,
+  "batches": 1,
+  "version_conflicts": 0,
+  "noops": 0,
+  "retries": 0,
+  "throttled_millis": 0,
+  "requests_per_second": "unlimited",
+  "throttled_until_millis": 0,
+  "failures": []
+}
+```
+
+_update_by_query 会在执行时获取一个index的快照，并且用内部版本号对它找到的文档进行索引。这意味着如果在快照生成和处理索引请求时文档有所改变，你会遇到版本冲突问题。当版本号匹配时，文档会进行更新，并且版本号会增加。
+
+所有的查询和更新失败都会导致_update_by_query的终止并且返回失败信息。但是已更新的数据不会被回滚。当第一条失败时，会导致程序中止，这意味着所有的更新失败，这时候会返回大量的失败元素。
+
+如果你想当版本冲突时只进行简单的计数，而不中止，可以在url中设置 conflicts=proceed或者在请求内容中设置"conflicts": "proceed"，在api中，可以只针对索引中的一个类型进行操作：
+```
+POST twitter/tweet/_update_by_query?conflicts=proceed
+```
+
+还可以使用Query DSL：
+```
+POST twitter/_update_by_query?conflicts=proceed
+{
+  "query": { 
+    "term": {
+      "user": "kimchy"
+    }
+  }
+}
+```
+
+之前介绍的都是没有改变文档内容的，其实_update_by_query是可以在支持脚本对文档内容的更新。例如：
+
+```
+POST twitter/_update_by_query
+{
+  "script": {
+    "inline": "ctx._source.likes++"
+  },
+  "query": {
+    "term": {
+      "user": "kimchy"
+    }
+  }
+}
+```
+## Multi Get API
+Mget api 可以获得多个文档结果，它们会以数组方式返回：
+```
+curl 'localhost:9200/_mget' -d '{
+    "docs" : [
+        {
+            "_index" : "test",
+            "_type" : "type",
+            "_id" : "1"
+        },
+        {
+            "_index" : "test",
+            "_type" : "type",
+            "_id" : "2"
+        }
+    ]
+}'
+```
+它也可以指定index或type：
+```
+curl 'localhost:9200/test/type/_mget' -d '{
+    "docs" : [
+        {
+            "_id" : "1"
+        },
+        {
+            "_id" : "2"
+        }
+    ]
+}'
+```
+或者指定id:
+```
+curl 'localhost:9200/test/type/_mget' -d '{
+    "ids" : ["1", "2"]
+}'
+```
+
+### _source 过滤
+还可以指定_source中包含的字段：
+```
+curl 'localhost:9200/_mget' -d '{
+    "docs" : [
+        {
+            "_index" : "test",
+            "_type" : "type",
+            "_id" : "1",
+            "_source" : false
+        },
+        {
+            "_index" : "test",
+            "_type" : "type",
+            "_id" : "2",
+            "_source" : ["field3", "field4"]
+        },
+        {
+            "_index" : "test",
+            "_type" : "type",
+            "_id" : "3",
+            "_source" : {
+                "include": ["user"],
+                "exclude": ["user.location"]
+            }
+        }
+    ]
+}'
+```
+
+### field 过滤
+```
+curl 'localhost:9200/test/type/_mget?stored_fields=field1,field2' -d '{
+    "docs" : [
+        {
+            "_id" : "1" 
+        },
+        {
+            "_id" : "2",
+            "stored_fields" : ["field3", "field4"] 
+        }
+    ]
+}'
+```
+
+## Bulk API
+ 
+
+
