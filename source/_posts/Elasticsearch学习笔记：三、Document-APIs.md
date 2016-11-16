@@ -713,6 +713,6 @@ curl 'localhost:9200/test/type/_mget?stored_fields=field1,field2' -d '{
 ```
 
 ## Bulk API
- 
+  
 
 
