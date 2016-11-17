@@ -713,6 +713,203 @@ curl 'localhost:9200/test/type/_mget?stored_fields=field1,field2' -d '{
 ```
 
 ## Bulk API
-  
+bulk API 可以通过一条请求来实现多个增加、删除操作，这能很有效的提高索引速度。
+
+bulk默认的json格式是：
+```
+action_and_meta_data\n
+optional_source\n
+action_and_meta_data\n
+optional_source\n
+....
+action_and_meta_data\n
+optional_source\n
+```
+注意，它是以 \n 为每行的结束符。
+一般，它用做index，create，delete和update操作。index和create的source放在下一行，而delete只需一行，update则是由于有script、upsert等操作，不局限于两行。
+
+```
+curl -s -XPOST localhost:9200/_bulk
+{ "index" : { "_index" : "test", "_type" : "type1", "_id" : "1" } }
+{ "field1" : "value1" }
+```
+
+多种操作的例子：
+```
+{ "index" : { "_index" : "test", "_type" : "type1", "_id" : "1" } }
+{ "field1" : "value1" }
+{ "delete" : { "_index" : "test", "_type" : "type1", "_id" : "2" } }
+{ "create" : { "_index" : "test", "_type" : "type1", "_id" : "3" } }
+{ "field1" : "value3" }
+{ "update" : {"_id" : "1", "_type" : "type1", "_index" : "index1"} }
+{ "doc" : {"field2" : "value2"} }
+```
+
+在url中可以设置 index 和type ，如果在doc中也设置了，那么会覆盖掉url中的设置。
+
+## Reindex API
+reindex API 也是一个实验性质的，不保证向后兼容。
+
+Reindex API 不会建立一个目标index，他也不会复制源索引的配置。你需要在运行_reindex之前配置好映射，分片和复制。
+
+_reindex最基本的用法是将文档从一个索引拷贝到另一个索引：
+```
+POST _reindex
+{
+  "source": {
+    "index": "twitter"
+  },
+  "dest": {
+    "index": "new_twitter"
+  }
+}
+```
+和update_by_query 一样，_reindex从源索引得到一个快照，并且目标索引必须是不同的索引，而且也不会引起版本冲突。 dest 元素可以像 indexAPI那样配置，来执行乐观并发控制。可以不管version_type 或者设置它为internal ，这会使es直接将数据拷贝到目标索引，不管数据的并发情况:
+```
+POST _reindex
+{
+  "source": {
+    "index": "twitter"
+  },
+  "dest": {
+    "index": "new_twitter",
+    "version_type": "internal"
+  }
+}
+```
+将version_type设置为external会导致es将version保存在source中，在更新文档的时候进行一个乐观的版本控制：
+```
+POST _reindex
+{
+  "source": {
+    "index": "twitter"
+  },
+  "dest": {
+    "index": "new_twitter",
+    "version_type": "external"
+  }
+}
+```
+设置op_type为create将会导致_reindex仅仅只会创建没有的文档，而已经存在的文档则会导致版本冲突：
+```
+POST _reindex
+{
+  "source": {
+    "index": "twitter"
+  },
+  "dest": {
+    "index": "new_twitter",
+    "op_type": "create"
+  }
+}
+```
+
+默认情况下，版本冲突会导致_reindex进程停止，可是设置`"conflicts": "proceed"`来计算失败的数量：
+```
+POST _reindex
+{
+  "conflicts": "proceed",
+  "source": {
+    "index": "twitter"
+  },
+  "dest": {
+    "index": "new_twitter",
+    "op_type": "create"
+  }
+}
+```
+也可以根据查询结果来进行拷贝：
+```
+POST _reindex
+{
+  "source": {
+    "index": "twitter",
+    "type": "tweet",
+    "query": {
+      "term": {
+        "user": "kimchy"
+      }
+    }
+  },
+  "dest": {
+    "index": "new_twitter"
+  }
+}
+```
+
+指定多个index或type:
+```
+POST _reindex
+{
+  "source": {
+    "index": ["twitter", "blog"],
+    "type": ["tweet", "post"]
+  },
+  "dest": {
+    "index": "all_together"
+  }
+}
+```
+
+还可以加上排序条件和条数限制
+```
+POST _reindex
+{
+  "size": 10000,
+  "source": {
+    "index": "twitter",
+    "sort": { "date": "desc" }
+  },
+  "dest": {
+    "index": "new_twitter"
+  }
+}
+```
+
+加入script：
+```
+POST _reindex
+{
+  "source": {
+    "index": "twitter"
+  },
+  "dest": {
+    "index": "new_twitter",
+    "version_type": "external"
+  },
+  "script": {
+    "inline": "if (ctx._source.foo == 'bar') {ctx._version++; ctx._source.remove('foo')}"
+  }
+}
+```
+
+### 从远程服务器reindex
+```
+POST _reindex
+{
+  "source": {
+    "remote": {
+      "host": "http://otherhost:9200",
+      "username": "user",
+      "password": "pass"
+    },
+    "index": "source",
+    "query": {
+      "match": {
+        "test": "data"
+      }
+    }
+  },
+  "dest": {
+    "index": "dest"
+  }
+}
+```
+## Term Vectors
+
+
+
+
+
 
 
