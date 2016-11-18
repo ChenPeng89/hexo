@@ -906,6 +906,343 @@ POST _reindex
 }
 ```
 ## Term Vectors
+返回一个带有词条信息和统计的特殊的文档。这个文档可以存在索引中，或者由用户人为提供。词条信息默认是实时的，可以通过realtime 参数设为 true 来改成非实时的。
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1/_termvectors?pretty=true'
+```
+
+也可以指定字段，返回这个字段的信息：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1/_termvectors?fields=text,...'
+```
+
+### 返回的信息
+可以请求三种信息：词条信息、词条统计以及字段统计。默认情况下，会返回所有词条信息和字段统计，但不会返回词条统计。
+
+#### 词条信息
+- 词条在字段中的出现频率（始终返回）
+- 词条位置（position:true）
+- 开始和结束偏移量（offsets:true）
+- 词条容量（payloads : true） ，比如base64编码的字节数。
+
+如果请求的信息不在索引中，它将尽量不计算。另外，term vectors甚至可以计算不在索引中而是由用户提供的文档。
+
+#### 词条统计
+将term_statistics 设为 true 可以返回：
+- 词条整体出现频率（词条在所有文档中出现的频率）
+- 文档频率（包含当前词条的文档数）
+
+默认情况下，这两个都不会返回，因为会影响系统效率。
+
+#### 字段统计
+默认情况下，field_statistics ： true ， 这会返回：
+- 包含这个字段的文档数
+- 所有包含这个字段的文档中这个字段包含的所有词条出现频率的总和。
+- 这个字段中包含的每一个词条的出现频率总和。
+
+#### 词条过滤
+通过filter参数，返回的词条可以基于它们的 tf-idf分数进行过滤。这对于为了找出一个特定的文档是很有帮助的。有以下几个参数可用：
+
+- max_num_terms : 每个字段必须返回的最大词条数量，默认是25。
+- min_term_freg : 忽略在source中词语频率低于这个值的词条。默认是1.
+- max_term_freq ： 与上面相反。默认是无穷大。
+- min_doc_freq ： 忽略词条出现频率低于这个值的文档。默认是1.
+- max_doc_freq ： 与上面相反，默认是无穷大。
+- min_word_length ： 忽略长度短语这个值的短语。 默认是0。
+- max_word_length ： 与上面相反，默认是无穷大。
+
+
+### 例子
+首先创建存有 term vectors ， payloads 的索引：
+```
+curl -s -XPUT 'http://localhost:9200/twitter/' -d '{
+  "mappings": {
+    "tweet": {
+      "properties": {
+        "text": {
+          "type": "string",
+          "term_vector": "with_positions_offsets_payloads",
+          "store" : true,
+          "analyzer" : "fulltext_analyzer"
+         },
+         "fullname": {
+          "type": "string",
+          "term_vector": "with_positions_offsets_payloads",
+          "analyzer" : "fulltext_analyzer"
+        }
+      }
+    }
+  },
+  "settings" : {
+    "index" : {
+      "number_of_shards" : 1,
+      "number_of_replicas" : 0
+    },
+    "analysis": {
+      "analyzer": {
+        "fulltext_analyzer": {
+          "type": "custom",
+          "tokenizer": "whitespace",
+          "filter": [
+            "lowercase",
+            "type_as_payload"
+          ]
+        }
+      }
+    }
+  }
+}'
+```
+添加数据：
+```
+curl -XPUT 'http://localhost:9200/twitter/tweet/1?pretty=true' -d '{
+  "fullname" : "John Doe",
+  "text" : "twitter test test test "
+}'
+
+curl -XPUT 'http://localhost:9200/twitter/tweet/2?pretty=true' -d '{
+  "fullname" : "Jane Doe",
+  "text" : "Another twitter test ..."
+}'
+```
+
+#### 查询id=1 的text字段的所有信息和统计：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1/_termvectors?pretty=true' -d '{
+  "fields" : ["text"],
+  "offsets" : true,
+  "payloads" : true,
+  "positions" : true,
+  "term_statistics" : true,
+  "field_statistics" : true
+}'
+```
+返回结果是：
+```
+{
+  "_index": "twitter",
+  "_type": "tweet",
+  "_id": "1",
+  "_version": 1,
+  "found": true,
+  "took": 91,
+  "term_vectors": {
+    "text": {
+      "field_statistics": {
+        "sum_doc_freq": 6   //该字段中词的出现频率(在所有文档中),
+        "doc_count": 2    // 包含该字段的文档数
+        "sum_ttf": 8      // 该字段中词的数量（包含重复的词）
+      },
+      "terms": {
+        "test": {
+          "doc_freq": 2,   //该词出现在几个文档中
+          "ttf": 4,		   //该词出现的次数
+          "term_freq": 3,  //该词在这个文档中出现的频率
+          "tokens": [
+            {
+              "position": 1,
+              "start_offset": 8,
+              "end_offset": 12,
+              "payload": "d29yZA=="
+            },
+            {
+              "position": 2,
+              "start_offset": 13,
+              "end_offset": 17,
+              "payload": "d29yZA=="
+            },
+            {
+              "position": 3,
+              "start_offset": 18,
+              "end_offset": 22,
+              "payload": "d29yZA=="
+            }
+          ]
+        },
+        "twitter": {
+          "doc_freq": 2,
+          "ttf": 2,
+          "term_freq": 1,
+          "tokens": [
+            {
+              "position": 0,
+              "start_offset": 0,
+              "end_offset": 7,
+              "payload": "d29yZA=="
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+#### 对不在索引中存储的文档进行统计
+下面这个文档并没有在索引中，但是也可以对它进行统计：
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/1/_termvectors?pretty=true' -d '{
+  "fields" : ["text", "some_field_without_term_vectors"],
+  "offsets" : true,
+  "positions" : true,
+  "term_statistics" : true,
+  "field_statistics" : true
+}'
+```
+
+#### 在请求中人为定义的文档
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/_termvectors' -d '{
+  "doc" : {
+    "fullname" : "John Doe",
+    "text" : "twitter test test test"
+  }
+}'
+```
+如果设置了动态mapping，那么如果文档不存在会自动添加。
+
+#### 针对每一个字段分析
+可以使用per_field_analyzer参数定义该字段的分析器，这样每个字段都可以使用不同的分析器，分析其词条向量的信息。如果这个字段已经经过存储，那么会重新生成它的词条向量
+```
+curl -XGET 'http://localhost:9200/twitter/tweet/_termvectors' -d '{
+  "doc" : {
+    "fullname" : "John Doe",
+    "text" : "twitter test test test"
+  },
+  "fields": ["fullname"],
+  "per_field_analyzer" : {
+    "fullname": "keyword"
+  }
+}'
+```
+返回：
+````
+{
+  "_index": "twitter",
+  "_type": "tweet",
+  "_version": 0,
+  "found": true,
+  "took": 178,
+  "term_vectors": {
+    "fullname": {
+      "field_statistics": {
+        "sum_doc_freq": 4,
+        "doc_count": 2,
+        "sum_ttf": 4
+      },
+      "terms": {
+        "John Doe": {
+          "term_freq": 1,
+          "tokens": [
+            {
+              "position": 0,
+              "start_offset": 0,
+              "end_offset": 8
+            }
+          ]
+        }
+      }
+    },
+    "text": {
+      "field_statistics": {
+        "sum_doc_freq": 6,
+        "doc_count": 2,
+        "sum_ttf": 8
+      },
+      "terms": {
+        "test": {
+          "term_freq": 3,
+          "tokens": [
+            {
+              "position": 1,
+              "start_offset": 8,
+              "end_offset": 12
+            },
+            {
+              "position": 2,
+              "start_offset": 13,
+              "end_offset": 17
+            },
+            {
+              "position": 3,
+              "start_offset": 18,
+              "end_offset": 22
+            }
+          ]
+        },
+        "twitter": {
+          "term_freq": 1,
+          "tokens": [
+            {
+              "position": 0,
+              "start_offset": 0,
+              "end_offset": 7
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+````
+
+#### 过滤词条
+```
+GET /twitter/tweet/_termvectors
+{
+    "doc": {
+      "plot": "When wealthy industrialist Tony Stark is forced to build an armored suit after a life-threatening incident, he ultimately decides to use its technology to fight against evil."
+    },
+    "term_statistics" : true,
+    "field_statistics" : true,
+    "positions": false,
+    "offsets": false,
+    "filter" : {
+      "max_num_terms" : 3,
+      "min_term_freq" : 1,
+      "min_doc_freq" : 1
+    }
+}
+```
+返回：
+```
+{
+  "_index": "twitter",
+  "_type": "tweet",
+  "_version": 0,
+  "found": true,
+  "took": 1324,
+  "term_vectors": {
+    "plot": {
+      "field_statistics": {
+        "sum_doc_freq": 26,
+        "doc_count": 1,
+        "sum_ttf": 28
+      },
+      "terms": {
+        "after": {
+          "doc_freq": 1,
+          "ttf": 1,
+          "term_freq": 1,
+          "score": 0.30685282
+        },
+        "against": {
+          "doc_freq": 1,
+          "ttf": 1,
+          "term_freq": 1,
+          "score": 0.30685282
+        },
+        "to": {
+          "doc_freq": 1,
+          "ttf": 3,
+          "term_freq": 3,
+          "score": 0.92055845
+        }
+      }
+    }
+  }
+}
+```
 
 
 
