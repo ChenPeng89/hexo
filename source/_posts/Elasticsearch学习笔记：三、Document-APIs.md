@@ -1243,6 +1243,107 @@ GET /twitter/tweet/_termvectors
   }
 }
 ```
+## Multi termvectors API
+这个API可以进行一次获得多个termvectors。可以通过指定索引、类型或者id来实现。
+```
+curl 'localhost:9200/_mtermvectors' -d '{
+   "docs": [
+      {
+         "_index": "testidx",
+         "_type": "test",
+         "_id": "2",
+         "term_statistics": true
+      },
+      {
+         "_index": "testidx",
+         "_type": "test",
+         "_id": "1",
+         "fields": [
+            "text"
+         ]
+      }
+   ]
+}'
+```
+
+
+参数方面，和termvectors一致，具体参照termvectors。
+
+指定index的例子：
+```
+curl 'localhost:9200/testidx/_mtermvectors' -d '{
+   "docs": [
+      {
+         "_type": "test",
+         "_id": "2",
+         "fields": [
+            "text"
+         ],
+         "term_statistics": true
+      },
+      {
+         "_type": "test",
+         "_id": "1"
+      }
+   ]
+}'
+```
+
+指定type的例子：
+```
+curl 'localhost:9200/testidx/test/_mtermvectors' -d '{
+   "docs": [
+      {
+         "_id": "2",
+         "fields": [
+            "text"
+         ],
+         "term_statistics": true
+      },
+      {
+         "_id": "1"
+      }
+   ]
+}'
+```
+
+如果所有的文档都是同一个index和type，那么就简单很多：
+```
+curl 'localhost:9200/testidx/test/_mtermvectors' -d '{
+    "ids" : ["1", "2"],
+    "parameters": {
+        "fields": [
+                "text"
+        ],
+        "term_statistics": true,
+        …
+    }
+}'
+```
+
+和termvectors一样，也能够使用用户自己定义的文档：
+```
+curl 'localhost:9200/_mtermvectors' -d '{
+   "docs": [
+      {
+         "_index": "testidx",
+         "_type": "test",
+         "doc" : {
+            "fullname" : "John Doe",
+            "text" : "twitter test test test"
+         }
+      },
+      {
+         "_index": "testidx",
+         "_type": "test",
+         "doc" : {
+           "fullname" : "Jane Doe",
+           "text" : "Another twitter test ..."
+         }
+      }
+   ]
+}'
+```
 
 
 
