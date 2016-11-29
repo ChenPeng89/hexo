@@ -583,7 +583,314 @@ GET /_search
 }
 ```
 ### Fields
+stored_fields参数是针对已经明确mapping过的，一般不体检使用。可以使用 source filtering来代替。
+```
+GET /_search
+{
+    "stored_fields" : ["user", "postDate"],
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+```
+如果想加载所有的字段，可以用 * 。
+如果设置为空数组，那么如果命中，将只返回_id 和 _type。
+```
+GET /_search
+{
+    "stored_fields" : [],
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+```
 
+如果没有需要的字段，它将会被忽略。
+
+#### 不使用存储的字段
+```
+GET /_search
+{
+    "stored_fields": "_none_",
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+``` 
+### Script Fields
+```
+{
+    "query" : {
+        "match_all": {}
+    },
+    "script_fields" : {
+        "test1" : {
+            "script" : {
+             
+                "inline": "doc['my_field_name'].value * 2"
+            }
+        },
+        "test2" : {
+            "script" : {
+               
+                "inline": "doc['my_field_name'].value * factor",
+                "params" : {
+                    "factor"  : 2.0
+                }
+            }
+        }
+    }
+}
+```
+
+script_fields 能够操作没存储的字段，并且允许人为定义其返回值。
+script_fields 还可以访问年实际存在的 _source 文档，并且指定返回的元素：
+```
+GET /_search
+    {
+        "query" : {
+            "match_all": {}
+        },
+        "script_fields" : {
+            "test1" : {
+                "script" : "_source.obj1.obj2"
+            }
+        }
+    }
+```
+理解doc['my_field'].value 和 _source.my_field 的区别是很重要的。首先，使用doc，将会导致字段加载进内存，需要更多的内存消耗，但是会获得更快的响应速度。另外，doc[...]符号只允许简单的值的字段，不允许json object类型。
+_source只返回json相关的部分。
+
+### Doc value Fields
+```
+GET /_search
+{
+    "query" : {
+        "match_all": {}
+    },
+    "docvalue_fields" : ["test1", "test2"]
+}
+```
+docvalue_fields 能够用于没有存储的字段上。
+值得注意的是，如果字段的参数制定了没有docvalues的字段，将会从字段数据的缓存中加载值并导致字段中的所有词条加载到内存中，造成更多的内存消耗。
+
+### Post filter
+post_filter 用来搜索每个hits，在聚合运算之后。下面是一个解释的例子：
+
+加入你卖衬衫：
+```
+PUT /shirts
+{
+    "mappings": {
+        "item": {
+            "properties": {
+                "brand": { "type": "string"},
+                "color": { "type": "string"},
+                "model": { "type": "string"}
+            }
+        }
+    }
+}
+
+PUT /shirts/item/1?refresh
+{
+    "brand": "gucci",
+    "color": "red",
+    "model": "slim"
+}
+```
+想象一下，一个用户制定了两个搜索条件：
+color:red 和 brand:gucci 。通常，你可以使用：
+```
+GET /shirts/_search
+{
+  "query": {
+    "bool": {
+      "filter": [
+        { "term": { "color": "red"   }},
+        { "term": { "brand": "gucci" }}
+      ]
+    }
+  }
+}
+```
+返回结果时这样的：
+```
+{
+  "took": 120,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 0,
+    "hits": [
+      {
+        "_index": "shirts",
+        "_type": "item",
+        "_id": "1",
+        "_score": 0,
+        "_source": {
+          "brand": "gucci",
+          "color": "red",
+          "model": "slim"
+        }
+      }
+    ]
+  }
+}
+```
+
+然而，你还想要展示一系列的选项来让用户点击查询。例如，你有一个model 字段来希望用户进一步查询是 red gucci 的t-shirts 还是dress-shirts，这可以使用terms aggregation来实现：
+```
+GET /shirts/_search
+{
+  "query": {
+    "bool": {
+      "filter": [
+        { "term": { "color": "red"   }},
+        { "term": { "brand": "gucci" }}
+      ]
+    }
+  },
+  "aggs": {
+    "models": {
+      "terms": { "field": "model" } 
+    }
+  }
+}
+```
+返回这样的：
+```
+{
+  "took": 73,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 0,
+    "hits": [
+      {
+        "_index": "shirts",
+        "_type": "item",
+        "_id": "1",
+        "_score": 0,
+        "_source": {
+          "brand": "gucci",
+          "color": "red",
+          "model": "slim"
+        }
+      }
+    ]
+  },
+  "aggregations": {
+    "models": {
+      "doc_count_error_upper_bound": 0,
+      "sum_other_doc_count": 0,
+      "buckets": [
+        {
+          "key": "slim",
+          "doc_count": 1
+        }
+      ]
+    }
+  }
+}
+```
+但是，有可能你邮箱告诉user还有多少其他颜色的gucci shirts。如果你仅仅添加一个terms 的aggregation在color字段，你只能得到color为red的，因为你的查询只返回了red gucci shirts。
+
+解决方法是，你想要查询所有color的shirts，先通过聚合，然后使用color的filter来对查询结果进一步过滤，这就是post_filter的用处：
+```
+GET /shirts/_search
+{
+  "query": {
+    "bool": {
+      "filter": {
+        "term": { "brand": "gucci" } 
+      }
+    }
+  },
+  "aggs": {
+    "colors": {
+      "terms": { "field": "color" } 
+    },
+    "color_red": {
+      "filter": {
+        "term": { "color": "red" } 
+      },
+      "aggs": {
+        "models": {
+          "terms": { "field": "model" } 
+        }
+      }
+    }
+  },
+  "post_filter": { 
+    "term": { "color": "red" }
+  }
+}
+```
+返回结果：
+```
+{
+  "took": 20,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 0,
+    "hits": [
+      {
+        "_index": "shirts",
+        "_type": "item",
+        "_id": "1",
+        "_score": 0,
+        "_source": {
+          "brand": "gucci",
+          "color": "red",
+          "model": "slim"
+        }
+      }
+    ]
+  },
+  "aggregations": {
+    "color_red": {
+      "doc_count": 1,
+      "models": {
+        "doc_count_error_upper_bound": 0,
+        "sum_other_doc_count": 0,
+        "buckets": [
+          {
+            "key": "slim",
+            "doc_count": 1
+          }
+        ]
+      }
+    },
+    "colors": {
+      "doc_count_error_upper_bound": 0,
+      "sum_other_doc_count": 0,
+      "buckets": [
+        {
+          "key": "red",
+          "doc_count": 1
+        }
+      ]
+    }
+  }
+}
+```
 
 
 
