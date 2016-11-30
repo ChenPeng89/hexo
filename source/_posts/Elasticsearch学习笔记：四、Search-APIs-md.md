@@ -891,6 +891,447 @@ GET /shirts/_search
   }
 }
 ```
+### Highlighting
+可以对搜索结果的一个或多个字段进行高亮处理。具体是使用Lucene的plain highlighter ， fast vector highting 和 posting highlighter实现的。
+```
+GET /_search
+{
+    "query" : {
+        "match": { "user": "kimchy" }
+    },
+    "highlight" : {
+        "fields" : {
+            "content" : {}
+        }
+    }
+}
+```
+在上面的例子中，content字段就是对于每个命中的结果进行高亮的字段。
+
+#### Plain highlighter
+默认的高亮方式是通过plain，也就是使用的Lucene的highlighter。它力图反映查询匹配的逻辑中单词理解的重要性和短语查询中单词的定位标准。
+
+如果你想要通过复杂的查询来高亮很多文档中的很多字段，那么它不会很快。因为在执行时，它会创建一个小的内存空间并使用Lucene的查询重新搜索一遍将要被高亮的字段。
+
+#### Postings highlighter
+如果在mapping中将 index_options 设置为 offsets，那么将会使用postings highlighter 来代替 plain highlighter。postings highlighter有以下特点：
+
+- 响应比较快，因为他不需要重新分析将被高亮的文本，越大的文件响应速度越快。
+- 比term_vectors 需要更少的硬盘空间，需要fast vector highlighter。
+- 可以将文本分成句子并高亮他们。对于自然语言发挥得很好,但是不包含例如html标记的字段。
+- 将文档视为整个文章，使用BM25算法score每个单独的句子。
+
+Elasticsearch中需要在建立索引的时候映射字段类型，才可以实现postings-highlighter高亮显示，例如对content字段采用postings高亮类型：
+```
+{
+    "type_name" : {
+        "content" : {"type":"string","index_options" : "offsets"}
+    }
+}
+```
+值得注意的是，postings highlighter 意味着针对简单查询的词条高亮，而不管它们的位置。这意味着，当与短语查询结合使用时，它将高亮构成查询的所有词条，而不管它们是否实际上是查询匹配的一部分，从而有效地忽略了它们的位置。
+
+postings highlighter 不支持高亮一些复杂的查询，比如将type设置match_phrase_prefix的match查询。这种情况下没有被高亮的段落返回。
+
+#### Fast vector highlighter
+当mapping中设置term_vector为with_positions_offsets，将会用fast vector highlighter 代替 plain highlighter。
+特点：
+- 快，尤其对于大于1M的字段。
+- 可定制的boundary_chars，boundary_max_scan，和fragment_offset。
+- 需要设置term_vector的值为with_positions_offsets，这会增加索引的大小。
+- 可以将多个字段的匹配组合成一个结果。
+- 可以为不同位置的短语分配不同的权重。
+
+```
+{
+    "type_name" : {
+        "content" : {"term_vector" : "with_positions_offsets"}
+    }
+}
+```
+
+#### Force highlighter type
+可以对指定的字段类型进行高亮。这对于要使用term_vectors对字段进行高亮非常有用。可以允许的类型为：plain，postings和fvh。
+```
+GET /_search
+{
+    "query" : {
+        "match": { "brand": "gucci" }
+    },
+    "highlight" : {
+        "fields" : {
+            "brand" : {"type" : "plain"}
+        }
+    }
+}
+```
+响应：
+```
+{
+  "took": 18,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 0.30685282,
+    "hits": [
+      {
+        "_index": "shirts",
+        "_type": "item",
+        "_id": "1",
+        "_score": 0.30685282,
+        "_source": {
+          "brand": "gucci",
+          "color": "red",
+          "model": "slim"
+        },
+        "highlight": {
+          "brand": [
+            "<em>gucci</em>"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+#### Force highlighter on source
+强制高亮source中的字段，即使字段被分开存储。默认是false。
+```
+GET /_search
+{
+    "query" : {
+        "match": { "brand": "gucci" }
+    },
+    "highlight" : {
+        "fields" : {
+            "brand" : {"force_source" : true}
+        }
+    }
+}
+```
+这样返回的内容是：
+```
+{
+  "took": 130,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 0.30685282,
+    "hits": [
+      {
+        "_index": "shirts",
+        "_type": "item",
+        "_id": "1",
+        "_score": 0.30685282,
+        "_source": {
+          "brand": "gucci",
+          "color": "red",
+          "model": "slim"
+        },
+        "highlight": {
+          "brand": [
+            "<em>gucci</em>"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+#### Highlighting tags
+默认情况下，被高亮的文本的包围标签是<em></em>，这个可以自定义设置：
+```
+GET /_search
+{
+    "query" : {
+        "match": { "brand": "gucci" }
+    },
+    "highlight" : {
+        "pre_tags" : ["<tag1>"],
+        "post_tags" : ["</tag1>"],
+        "fields" : {
+            "brand" : {"force_source" : true}
+        }
+    }
+}
+```
+响应：
+```
+{
+  "took": 3,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 0.30685282,
+    "hits": [
+      {
+        "_index": "shirts",
+        "_type": "item",
+        "_id": "1",
+        "_score": 0.30685282,
+        "_source": {
+          "brand": "gucci",
+          "color": "red",
+          "model": "slim"
+        },
+        "highlight": {
+          "brand": [
+            "<tag1>gucci</tag1>"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+使用fast vector highlighter 能够使用更多的tag。
+```
+GET /_search
+{
+    "query" : {
+        "match": { "user": "kimchy" }
+    },
+    "highlight" : {
+        "pre_tags" : ["<tag1>", "<tag2>"],
+        "post_tags" : ["</tag1>", "</tag2>"],
+        "fields" : {
+            "_all" : {}
+        }
+    }
+}
+```
+也可以使用样式，例如想实现这样的样式：
+```
+<em class="hlt1">, <em class="hlt2">, <em class="hlt3">,
+<em class="hlt4">, <em class="hlt5">, <em class="hlt6">,
+<em class="hlt7">, <em class="hlt8">, <em class="hlt9">,
+<em class="hlt10">
+```
+可以这样：
+```
+GET /_search
+{
+    "query" : {
+        "match": { "user": "kimchy" }
+    },
+    "highlight" : {
+        "tags_schema" : "styled",
+        "fields" : {
+            "content" : {}
+        }
+    }
+}
+```
+#### Encoder
+encoder参数用于定义highlighter的文本是怎样的编码。可以是default或者html。
+
+#### Highlighted Fragments
+可以控制高亮字段的字符数大小，默认是100，还有最大片段数，默认是5:
+```
+
+{
+    "query" : {
+        "match": { "color": "red" }
+    },
+    "highlight" : {
+        "fields" : {
+            "color" : {"fragment_size" : 1, "number_of_fragments" : 1}
+        }
+    }
+}
+```
+当使用postings highlighter时，fragment_size会被忽略。
+可以针对评分进行排序：
+```
+{
+    "query" : {
+        "match": { "color": "red" }
+    },
+    "highlight" : {
+        "fields" : {
+        	"order" : "score",
+            "color" : {"force_source" : true ,"fragment_size" : 1, "number_of_fragments" : 1}
+        }
+    }
+}
+```
+
+#### Highlight query
+使用 highlight_query 可以针对搜索结果进行高亮内的二次搜索。这对于如果你想对没有考虑高亮的查询进行重新评分查询是非常有用的。
+```
+{
+    "stored_fields": [ "_id" ],
+    "query" : {
+        "match": {
+            "content": {
+                "query": "foo bar"
+            }
+        }
+    },
+    "rescore": {
+        "window_size": 50,
+        "query": {
+            "rescore_query" : {
+                "match_phrase": {
+                    "content": {
+                        "query": "foo bar",
+                        "slop": 1
+                    }
+                }
+            },
+            "rescore_query_weight" : 10
+        }
+    },
+    "highlight" : {
+        "order" : "score",
+        "fields" : {
+            "content" : {
+                "fragment_size" : 150,
+                "number_of_fragments" : 3,
+                "highlight_query": {
+                    "bool": {
+                        "must": {
+                            "match": {
+                                "content": {
+                                    "query": "foo bar"
+                                }
+                            }
+                        },
+                        "should": {
+                            "match_phrase": {
+                                "content": {
+                                    "query": "foo bar",
+                                    "slop": 1,
+                                    "boost": 10.0
+                                }
+                            }
+                        },
+                        "minimum_should_match": 0
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+#### Global Settings
+```
+{
+    "query" : {
+        "match": { "user": "kimchy" }
+    },
+    "highlight" : {
+        "number_of_fragments" : 3,
+        "fragment_size" : 150,
+        "fields" : {
+            "_all" : { "pre_tags" : ["<em>"], "post_tags" : ["</em>"] },
+            "bio.title" : { "number_of_fragments" : 0 },
+            "bio.author" : { "number_of_fragments" : 0 },
+            "bio.content" : { "number_of_fragments" : 5, "order" : "score" }
+        }
+    }
+}
+```
+
+#### Require Field Match
+将require_field_match设为false可以导致不管查询是否匹配，都会高亮显示。默认是true，意味着只有匹配的才高亮显示。
+```
+GET /_search
+{
+    "query" : {
+        "match": { "user": "kimchy" }
+    },
+    "highlight" : {
+        "require_field_match": false,
+        "fields": {
+                "_all" : { "pre_tags" : ["<em>"], "post_tags" : ["</em>"] }
+        }
+    }
+}
+```
+
+#### Boundary Characters
+当使用fast vector highlighter 高亮一个字段时，boundary_chars 能够设置边界字符。默认是 .,!? \t\n 。
+boundary_max_scan允许控制查找边界字符的距离，默认值为20。
+
+#### Matched Fields
+Fast Vector Highlighter 能够组合多个字段上的匹配并使用 matched_fields 突出单个字段。这对于使用不同分析器来处理同一字符串来说是最直观的。所有matched_fields 必须将 term_vector 设置为 with_positions_offsets ，但只会加载匹配的组合字段，因此只有该字段可以在store设置为yes时受益。
+
+下面的例子中，content 使用 english 分析器 ， content.plain使用 standard分析器。
+```
+GET /_search
+{
+    "query": {
+        "query_string": {
+            "query": "content.plain:running scissors",
+            "fields": ["content"]
+        }
+    },
+    "highlight": {
+        "order": "score",
+        "fields": {
+            "content": {
+                "matched_fields": ["content", "content.plain"],
+                "type" : "fvh"
+            }
+        }
+    }
+}
+```
+上面的查询中会匹配所有 "run with scissors" 和 "running with scissors"，而不是"run"。如果所有的词组都在一个大的文档中出现，那么"running with scissors" 会排在 "run with scissors"上面，因为在段落中它会更匹配。
+```
+GET /_search
+{
+    "query": {
+        "query_string": {
+            "query": "running scissors",
+            "fields": ["content", "content.plain^10"]
+        }
+    },
+    "highlight": {
+        "order": "score",
+        "fields": {
+            "content": {
+                "matched_fields": ["content", "content.plain"],
+                "type" : "fvh"
+            }
+        }
+    }
+}
+```
+#### Phrase Limit
+fast vector highlighter 可以通过phrase_limit 参数来防止分析过多的词组或消耗太多内存。默认是256，也就意味着只有文档前面的256个匹配的词组可以使用。你可以根据自己的需求适量提高这个限制，并且要考虑各方面平衡。
+如果使用matched_fields，每个匹配字段的phrase_limit短语被考虑。
+
+#### Field Highlight Order
+Elasticsearch按照它们发送的顺序来高亮字段。每个json对象是无序的，但如果你需要明确的字段高亮的顺序，你可以使用数组，如：
+```
+"highlight": {
+        "fields": [
+            {"title":{ /*params*/ }},
+            {"text":{ /*params*/ }}
+        ]
+    }
+```
+### Rescoring
+
+
 
 
 
