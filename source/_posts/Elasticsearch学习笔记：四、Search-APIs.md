@@ -1441,8 +1441,12 @@ POST /_search?scroll=1m
         }
     }
 }
-``` 
+```
+
+ 
 返回：
+
+
 ```
 {
   "_scroll_id": "cXVlcnlUaGVuRmV0Y2g7NTs0ODp6bnRHQVprSVMwaWJ4bGxmcG9OVFNBOzUwOnpudEdBWmtJUzBpYnhsbGZwb05UU0E7NDY6em50R0Faa0lTMGlieGxsZnBvTlRTQTs0OTp6bnRHQVprSVMwaWJ4bGxmcG9OVFNBOzQ3OnpudEdBWmtJUzBpYnhsbGZwb05UU0E7MDs=",
@@ -1472,7 +1476,9 @@ POST /_search?scroll=1m
   }
 }
 ```
+
 搜索结果会返回一个_scroll_id，可以用来传入scrollAPI来获得下一批数据。
+
 ```
 POST  /_search/scroll 
 {
@@ -1576,7 +1582,9 @@ parent/child 和 nested 功能可以允许返回匹配不同范围的文档。 �
     }
 }
 ```
+
 如果在查询中定义了inner_hits，那么在每次返回的信息中都包含inner_hits这个json块：
+
 ```
 "hits": [
      {
@@ -1620,7 +1628,9 @@ nested的查询：
     }
 }
 ```
+
 响应结果：
+
 ```
 ...
 "hits": {
@@ -1666,7 +1676,9 @@ parent/child 查询：
     }
 }
 ```
+
 响应结果：
+
 ```
 ...
 "hits": {
@@ -1731,7 +1743,7 @@ GET twitter/tweet/_search
     ]
 }
 ```
-值得注意的是，使用search_after需要将from设置为0或1。
+值得注意的是，使用search_after需要将from设置为0或-1。
 
 search_after对于想要随机跳转到某页是不可用的。它和scroll API非常相似，不同的是search_after是无状态的，它总是取得的是最新版本的数据。
 
