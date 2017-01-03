@@ -608,7 +608,7 @@ GET /_search
 如果没有需要的字段，它将会被忽略。
 
 #### 不使用存储的字段
-```
+````
 GET /_search
 {
     "stored_fields": "_none_",
@@ -616,9 +616,10 @@ GET /_search
         "term" : { "user" : "kimchy" }
     }
 }
-``` 
+````
+不使用存储的字段，可以使用_none_
 ### Script Fields
-```
+````
 {
     "query" : {
         "match_all": {}
@@ -641,7 +642,7 @@ GET /_search
         }
     }
 }
-```
+````
 
 script_fields 能够操作没存储的字段，并且允许人为定义其返回值。
 script_fields 还可以访问年实际存在的 _source 文档，并且指定返回的元素：
@@ -1330,6 +1331,413 @@ Elasticsearch按照它们发送的顺序来高亮字段。每个json对象是无
     }
 ```
 ### Rescoring
+Rescoring能够通过重新排序来精确query和post_filter的查询结果，使用了二次算法，而不是对整个索引进行操作。
+rescore请求会被在每一个分片上执行，在返回被节点排序的整个查询请求结果之前。
+当前，rescore API 只有一个实现：query rescorer--通过使用查询来调整得分。
+
+注意，当使用了sort时，rescore是不会执行的。
+当使用了分页功能时，遍历每一个页面是不应该改变window_size的（通过传不同的from的值），因为这会改变最上面的命中结果，使得用户在遍历页面时感到困惑。
+
+#### Query rescorer
+query rescorer 只会在query 和 post_filter查询返回的头N条进行二次查询。每个分片检查的文档数量可以通过window_size来控制，默认情况是 from / size。
+默认情况下，最初查询的得分和rescore查询的得分会先行的组成最终的每个文档的_score。这两个组合的权重比例可以通过query_weight和rescore_query_weight来控制，默认都是1.
+
+例子：
+```
+{
+   "query" : {
+      "match" : {
+         "brand" : {
+            "operator" : "or",
+            "query" : "gucci",
+            "type" : "boolean"
+         }
+      }
+   },
+   "rescore" : {
+      "window_size" : 50,
+      "query" : {
+         "rescore_query" : {
+            "match" : {
+               "brand" : {
+                  "query" : "asd",
+                  "type" : "phrase",
+                  "slop" : 2
+               }
+            }
+         },
+         "query_weight" : 0,
+         "rescore_query_weight" : 1
+      }
+   }
+}
+```
+也可以通过score_mode来控制得分：
+- total: 默认的设置，会将最初的得分和resscore加起来。
+- multiply：最初得分 * rescore。
+- avg： 平均分。
+- max： 最大值。
+- min： 最小值。
+
+#### Multiple Rescores
+```
+curl -s -XPOST 'localhost:9200/_search' -d '{
+   "query" : {
+      "match" : {
+         "field1" : {
+            "operator" : "or",
+            "query" : "the quick brown",
+            "type" : "boolean"
+         }
+      }
+   },
+   "rescore" : [ {
+      "window_size" : 100,
+      "query" : {
+         "rescore_query" : {
+            "match" : {
+               "field1" : {
+                  "query" : "the quick brown",
+                  "type" : "phrase",
+                  "slop" : 2
+               }
+            }
+         },
+         "query_weight" : 0.7,
+         "rescore_query_weight" : 1.2
+      }
+   }, {
+      "window_size" : 10,
+      "query" : {
+         "score_mode": "multiply",
+         "rescore_query" : {
+            "function_score" : {
+               "script_score": {
+                  "script": {
+                    "lang": "painless",
+                    "inline": "Math.log10(doc['numeric'].value + 2)"
+                  }
+               }
+            }
+         }
+      }
+   } ]
+}
+'
+```
+第一个查询查询到结果，然后第二个查询通过第一个查询结果来进行查询，依次类推。第二次查询会查看第一次查询结果的排序，因此它可能会在看第一次rescore时使用一个大的window，在第二次rescore时使用小一些的window。
+
+### Scroll
+与使用search请求一个单独的页面相比，scroll API能够用来获得更多数量的结果（甚至全部结果）通过一个请求，和数据库中的游标差不多。
+scroll请求返回的结果反映了当时search请求返回的索引的状态，像一个当时的快照。对文档（索引，更新或删除）的后续更改只会影响以后的搜索请求。
+为了使用scrolling，在查询字符串中应该初始化scroll参数，来告诉es要search context对象存活多久。例如：scroll=1m。
+```
+POST /_search?scroll=1m
+{
+    "size": 100,
+    "query": {
+        "match" : {
+            "brand" : "gucci"
+        }
+    }
+}
+``` 
+返回：
+```
+{
+  "_scroll_id": "cXVlcnlUaGVuRmV0Y2g7NTs0ODp6bnRHQVprSVMwaWJ4bGxmcG9OVFNBOzUwOnpudEdBWmtJUzBpYnhsbGZwb05UU0E7NDY6em50R0Faa0lTMGlieGxsZnBvTlRTQTs0OTp6bnRHQVprSVMwaWJ4bGxmcG9OVFNBOzQ3OnpudEdBWmtJUzBpYnhsbGZwb05UU0E7MDs=",
+  "took": 4,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "failed": 0
+  },
+  "hits": {
+    "total": 1,
+    "max_score": 0.30685282,
+    "hits": [
+      {
+        "_index": "shirts",
+        "_type": "item",
+        "_id": "1",
+        "_score": 0.30685282,
+        "_source": {
+          "brand": "gucci",
+          "color": "red",
+          "model": "slim"
+        }
+      }
+    ]
+  }
+}
+```
+搜索结果会返回一个_scroll_id，可以用来传入scrollAPI来获得下一批数据。
+```
+POST  /_search/scroll 
+{
+    "scroll" : "1m", 
+    "scroll_id" : "DXF1ZXJ5QW5kRmV0Y2gBAAAAAAAAAD4WYm9laVYtZndUQlNsdDcwakFMNjU1QQ==" 
+}
+```
+size参数可以用来配置每次命中数据的返回条数，每次请求scroll API都会返回下一批数据，直到为空。
+
+### Preference
+使用preference可以控制在哪个分片上执行搜索请求。默认情况下，会随机在分片的备份上执行。
+
+参数：
+- _primary: 只会在主分片上执行。
+- _primary_first: 会优先在祝分片上执行，如果主分片不可用，则在其他分片上执行。
+- _replica： 只会在副本分片上执行。
+- _replica_first： 会优先在副本分片上执行，如果分片不可用，则在其他分片上执行。
+- _local： 操作会尽可能在本地分片上执行。
+- _prefer_nodes:abc,xyz： 会在指定的节点上执行。
+- _shards:2,3： 限制操作在指定的分片上执行，这个参数可以和其他的preference参数一起执行，但是必须将它放在第一个：_shards:2,3|_primary。
+- _only_nodes： 限制操作的节点的规格。
+- Custom (string) value： 自定义的值将用来保证同一个分片会用来处理相同的自定义值。
+
+```
+GET /_search?preference=xyzabc123
+{
+    "query": {
+        "match": {
+            "title": "elasticsearch"
+        }
+    }
+}
+```
+
+### Explain
+开启explain可以知道所有的命中结果的score是怎么计算的。
+```
+GET /_search
+{
+    "explain": true,
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+```
+
+### Version
+每次命中的结果返回一个版本号。
+```
+GET /_search
+{
+    "version": true,
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+```
+
+### min_score
+排除_score低于设置的最小值的结果。
+```
+GET /_search
+{
+    "min_score": 0.5,
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+```
+### Named Queries
+每个filter和query都可以在最上面设置一个 _name 参数。
+```
+GET /_search
+{
+    "query": {
+        "bool" : {
+            "should" : [
+                {"match" : { "name.first" : {"query" : "shay", "_name" : "first"} }},
+                {"match" : { "name.last" : {"query" : "banon", "_name" : "last"} }}
+            ],
+            "filter" : {
+                "terms" : {
+                    "name.last" : ["banon", "kimchy"],
+                    "_name" : "test"
+                }
+            }
+        }
+    }
+}
+```
+### Inner hits
+parent/child 和 nested 功能可以允许返回匹配不同范围的文档。 在parent/child 中，parent文档可以基于child文档的匹配结果进行返回，或者child文档可以基于parent的匹配结果进行返回。在nested中，文档可以基于内嵌对象的匹配结果进行返回。
+
+在所有情况下，实际的返回结果是由哪个文档引起的一般来说是隐藏的，但是，大部分情况下，知道哪个文档引起的匹配结果是很必要的。inner hits 这个功能就是做这个的。
+
+结构是这样的：
+```
+"<query>" : {
+    "inner_hits" : {
+        <inner_hits_options>
+    }
+}
+```
+如果在查询中定义了inner_hits，那么在每次返回的信息中都包含inner_hits这个json块：
+```
+"hits": [
+     {
+        "_index": ...,
+        "_type": ...,
+        "_id": ...,
+        "inner_hits": {
+           "<inner_hits_name>": {
+              "hits": {
+                 "total": ...,
+                 "hits": [
+                    {
+                       "_type": ...,
+                       "_id": ...,
+                       ...
+                    },
+                    ...
+                 ]
+              }
+           }
+        },
+        ...
+     },
+     ...
+]
+```
+- from、size、sort：用于分页和排序。
+- name： 用于标识inner_hits的返回结果。当查询中有多个inner_hits时非常有用。
+
+nested的查询：
+```
+{
+    "query" : {
+        "nested" : {
+            "path" : "comments",
+            "query" : {
+                "match" : {"comments.message" : "[actual query]"}
+            },
+            "inner_hits" : {} 
+        }
+    }
+}
+```
+响应结果：
+```
+...
+"hits": {
+  ...
+  "hits": [
+     {
+        "_index": "my-index",
+        "_type": "question",
+        "_id": "1",
+        "_source": ...,
+        "inner_hits": {
+           "comments": { 
+              "hits": {
+                 "total": ...,
+                 "hits": [
+                    {
+                       "_nested": {
+                          "field": "comments",
+                          "offset": 2
+                       },
+                       "_source": ...
+                    },
+                    ...
+                 ]
+              }
+           }
+        }
+     },
+     ...
+```
+
+parent/child 查询：
+```
+{
+    "query" : {
+        "has_child" : {
+            "type" : "comment",
+            "query" : {
+                "match" : {"message" : "[actual query]"}
+            },
+            "inner_hits" : {} 
+        }
+    }
+}
+```
+响应结果：
+```
+...
+"hits": {
+  ...
+  "hits": [
+     {
+        "_index": "my-index",
+        "_type": "question",
+        "_id": "1",
+        "_source": ...,
+        "inner_hits": {
+           "comment": {
+              "hits": {
+                 "total": ...,
+                 "hits": [
+                    {
+                       "_type": "comment",
+                       "_id": "5",
+                       "_source": ...
+                    },
+                    ...
+                 ]
+              }
+           }
+        }
+     },
+     ...
+```
+### Search After
+分页功能一般可以使用from/size来实现，但是当深度分页时的成本也是很大的。index-max_result_window默认安全值是10000，搜索请求的堆内存占用率和时间成本和from+size成正比。Scroll API推荐用于深度分页，但是滚动的成本高，不推荐用于实时的请求。search_after参数通过提供一个实时的游标绕过了这个问题。这个想法是通过前一页的结果来帮助下一页的检索。
+
+假设查询第一页是这样的：
+```
+GET twitter/tweet/_search
+{
+    "size": 10,
+    "query": {
+        "match" : {
+            "title" : "elasticsearch"
+        }
+    },
+    "sort": [
+        {"date": "asc"},
+        {"_uid": "desc"}
+    ]
+}
+```
+上面查询的结果包括了一组 sort values。这些sort values 能用于联合search_after参数来返回任何文档后面的结果。例如，我们可以使用最后一个文档的sort values 并把它传入search_after，就可以获取下一页的文档：
+```
+GET twitter/tweet/_search
+{
+    "size": 10,
+    "query": {
+        "match" : {
+            "title" : "elasticsearch"
+        }
+    },
+    "search_after": [1463538857, "tweet#654323"],
+    "sort": [
+        {"date": "asc"},
+        {"_uid": "desc"}
+    ]
+}
+```
+值得注意的是，使用search_after需要将from设置为0或1。
+
+search_after对于想要随机跳转到某页是不可用的。它和scroll API非常相似，不同的是search_after是无状态的，它总是取得的是最新版本的数据。
+
+
+
+
 
 
 
