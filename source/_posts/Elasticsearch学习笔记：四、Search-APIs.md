@@ -1,5 +1,5 @@
 ---
-title: Elasticsearch学习笔记：四、Search-APIs.md
+title: Elasticsearch学习笔记：四、Search-APIs
 date: 2016-11-21 10:30:17
 tags: Elasticsearch
 ---
@@ -1783,7 +1783,10 @@ GET /_search/template
 ```
 
 ### 将参数转为json
-{{#toJson}}参数名{{/toJson}} 可以将 map 和 array 类型的参数转换为 json 格式。
+
+<font color='red'><b>注意，本节中，由于蛋疼的编译器的限制，在下一行的大括号内加上了单引号，正确的语法是不加单引号的。</b></font>
+
+`{{'#toJson'}}参数名{{'/toJson'}}`可以将 map 和 array 类型的参数转换为 json 格式。
 
 ```
 GET /_search/template
@@ -1794,7 +1797,6 @@ GET /_search/template
   }
 }
 ```
- 
 上面的例子实际执行时是这样的：
 
 ```
@@ -1844,7 +1846,7 @@ GET /_search/template
 ```
 
 ### 连接 array 的值
-{{#join}}array{{/join}} 可以将array的值连接起来。
+`{{'#join'}}array{{'/join'}}` 可以将array的值连接起来。
 
 ```
 GET /_search/template
@@ -1917,7 +1919,7 @@ GET /_search/template
 ``` 
 
 ### 默认值
-{{var}}{{^var}}default{{/var}} 可以设定参数的默认值。
+`{{'var'}}{{'^var'}}default{{'/var'}}` 可以设定参数的默认值。
 
 ```
 {
@@ -1926,7 +1928,7 @@ GET /_search/template
       "range": {
         "line_no": {
           "gte": "{{start}}",
-          "lte": "{{end}}{{^end}}20{{/end}}"
+          "lte": "{{end}}{{'^end'}}20{{'/end'}}"
         }
       }
     }
@@ -1960,7 +1962,6 @@ GET /_search/template
     }
 }
 ```
-
 ### 条件判断语句
 条件判断语句不能使用json作为参数，只能使用string类型。
 
@@ -1990,26 +1991,26 @@ GET /_search/template
         }
       },
       "filter": {
-        {{#line_no}} 
+        {{'#line_no'}} 
           "range": {
             "line_no": {
-              {{#start}} 
+              {{'#start'}} 
                 "gte": "{{start}}" 
-                {{#end}},{{/end}} 
-              {{/start}} 
-              {{#end}} 
+                {{'#end'}},{{'/end'}} 
+              {{'/start'}} 
+              {{'#end'}} 
                 "lte": "{{end}}" 
-              {{/end}} 
+              {{'/end'}} 
             }
           }
-        {{/line_no}} 
+        {{'/line_no'}} 
       }
     }
   }
 }
 ```
 
-{{#line_no}} ... {{/line_no}} 块表示的是 当指定了 line_no 这个参数时，才会有中间的代码，依此类推，{{#start}} ... {{/start}}等也是如此。
+`{{'#line_no'}} ... {{'/line_no'}}` 块表示的是 当指定了 line_no 这个参数时，才会有中间的代码，依此类推，`{{'#start'}} ... {{'/start'}}`等也是如此。
 
 ### 预注册模板
 可以预先将查询模板存储在 config/scripts 目录下，并使用后缀为.mustache 的文件存储。
@@ -2694,6 +2695,10 @@ GET /twitter/tweet/0/_explain?q=message:search
 - lenient： 是否忽略类型匹配异常。默认是false。
 
 - default_operator： 默认的逻辑操作符，可以是AND或OR，默认是OR。
+
+
+
+
 
 
 
