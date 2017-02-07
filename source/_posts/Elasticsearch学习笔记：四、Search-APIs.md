@@ -1916,10 +1916,14 @@ GET /_search/template
       }
     }
 }
-``` 
+```
+
 
 ### 默认值
+
+
 `{{'var'}}{{'^var'}}default{{'/var'}}` 可以设定参数的默认值。
+
 
 ```
 {
@@ -2023,11 +2027,12 @@ GET /_search/template
         "query_string": "search for these words"
     }
 }
-``` 
+```
 
 上面的例子中，文件是 config/scripts/ 目录下的storedTemplate.mustache 。
 
 还可以将模板存储在 cluster state 中。然后使用restAPI来管理：
+
 ```
 POST /_search/template/<templatename>
 {
