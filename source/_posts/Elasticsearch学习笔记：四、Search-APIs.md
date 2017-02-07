@@ -1747,6 +1747,959 @@ GET twitter/tweet/_search
 
 search_after对于想要随机跳转到某页是不可用的。它和scroll API非常相似，不同的是search_after是无状态的，它总是取得的是最新版本的数据。
 
+## Search Template
+
+```
+GET /_search/template
+{
+    "inline" : {
+      "query": { "match" : { "{{my_field}}" : "{{my_value}}" } },
+      "size" : "{{my_size}}"
+    },
+    "params" : {
+        "my_field" : "foo",
+        "my_value" : "bar",
+        "my_size" : 5
+    }
+}
+```
+
+### 参数为查询语句的例子
+
+```
+GET /_search/template
+{
+    "inline": {
+        "query": {
+            "match": {
+                "title": "{{query_string}}"
+            }
+        }
+    },
+    "params": {
+        "query_string": "search for these words"
+    }
+}
+```
+
+### 将参数转为json
+{{#toJson}}参数名{{/toJson}} 可以将 map 和 array 类型的参数转换为 json 格式。
+
+```
+GET /_search/template
+{
+  "inline": "{ \"query\": { \"terms\": { \"status\": {{#toJson}}status{{/toJson}} }}}",
+  "params": {
+    "status": [ "pending", "published" ]
+  }
+}
+```
+ 
+上面的例子实际执行时是这样的：
+
+```
+{
+  "query": {
+    "terms": {
+      "status": [
+        "pending",
+        "published"
+      ]
+    }
+  }
+}
+```
+
+更复杂一些的例子是这样的：
+
+```
+{
+    "inline": "{\"query\":{\"bool\":{\"must\": {{#toJson}}clauses{{/toJson}} }}}",
+    "params": {
+        "clauses": [
+            { "term": "foo" },
+            { "term": "bar" }
+        ]
+   }
+}
+```
+
+实际执行时是这样的：
+
+```
+{
+    "query" : {
+      "bool" : {
+        "must" : [
+          {
+            "term" : "foo"
+          },
+          {
+            "term" : "bar"
+          }
+        ]
+      }
+    }
+}
+```
+
+### 连接 array 的值
+{{#join}}array{{/join}} 可以将array的值连接起来。
+
+```
+GET /_search/template
+{
+  "inline": {
+    "query": {
+      "match": {
+        "emails": "{{#join}}emails{{/join}}"
+      }
+    }
+  },
+  "params": {
+    "emails": [ "username@email.com", "lastname@email.com" ]
+  }
+}
+```
+
+这就相当于：
+
+```
+{
+    "query" : {
+        "match" : {
+            "emails" : "username@email.com,lastname@email.com"
+        }
+    }
+}
+```
+
+也可以自定义链接的符号，比如将， 转为 || ：
+
+```
+GET /_search/template
+{
+  "inline": {
+    "query": {
+      "range": {
+        "born": {
+            "gte"   : "{{date.min}}",
+            "lte"   : "{{date.max}}",
+            "format": "{{#join delimiter='||'}}date.formats{{/join delimiter='||'}}"
+            }
+      }
+    }
+  },
+  "params": {
+    "date": {
+        "min": "2016",
+        "max": "31/12/2017",
+        "formats": ["dd/MM/yyyy", "yyyy"]
+    }
+  }
+}
+```
+
+相当于：
+
+```
+{
+    "query" : {
+      "range" : {
+        "born" : {
+          "gte" : "2016",
+          "lte" : "31/12/2017",
+          "format" : "dd/MM/yyyy||yyyy"
+        }
+      }
+    }
+}
+``` 
+
+### 默认值
+{{var}}{{^var}}default{{/var}} 可以设定参数的默认值。
+
+```
+{
+  "inline": {
+    "query": {
+      "range": {
+        "line_no": {
+          "gte": "{{start}}",
+          "lte": "{{end}}{{^end}}20{{/end}}"
+        }
+      }
+    }
+  },
+  "params": { ... }
+}
+```
+
+当params是{ "start": 10, "end": 15 }时，搜索语句是这样的：
+
+```
+{
+    "range": {
+        "line_no": {
+            "gte": "10",
+            "lte": "15"
+        }
+  }
+}
+```
+
+当params 是 { "start": 10 } 时，则是这样的：
+
+```
+{
+    "range": {
+        "line_no": {
+            "gte": "10",
+            "lte": "20"
+        }
+    }
+}
+```
+
+### 条件判断语句
+条件判断语句不能使用json作为参数，只能使用string类型。
+
+参数是：
+
+```
+{
+    "params": {
+        "text":      "words to search for",
+        "line_no": { 
+            "start": 10, 
+            "end":   20  
+        }
+    }
+}
+```
+
+查询语句是这样的：
+
+```
+{
+  "query": {
+    "bool": {
+      "must": {
+        "match": {
+          "line": "{{text}}" 
+        }
+      },
+      "filter": {
+        {{#line_no}} 
+          "range": {
+            "line_no": {
+              {{#start}} 
+                "gte": "{{start}}" 
+                {{#end}},{{/end}} 
+              {{/start}} 
+              {{#end}} 
+                "lte": "{{end}}" 
+              {{/end}} 
+            }
+          }
+        {{/line_no}} 
+      }
+    }
+  }
+}
+```
+
+{{#line_no}} ... {{/line_no}} 块表示的是 当指定了 line_no 这个参数时，才会有中间的代码，依此类推，{{#start}} ... {{/start}}等也是如此。
+
+### 预注册模板
+可以预先将查询模板存储在 config/scripts 目录下，并使用后缀为.mustache 的文件存储。
+
+```
+GET /_search/template
+{
+    "file": "storedTemplate", 
+    "params": {
+        "query_string": "search for these words"
+    }
+}
+``` 
+
+上面的例子中，文件是 config/scripts/ 目录下的storedTemplate.mustache 。
+
+还可以将模板存储在 cluster state 中。然后使用restAPI来管理：
+```
+POST /_search/template/<templatename>
+{
+    "template": {
+        "query": {
+            "match": {
+                "title": "{{query_string}}"
+            }
+        }
+    }
+}
+```
+
+然后获取的时候使用：
+
+
+```
+GET /_search/template/<templatename>
+```
+
+删除的时候使用：
+
+```
+DELETE /_search/template/<templatename>
+```
+
+## Multi Search Template
+
+```
+$ cat requests
+{"index": "test"}
+{"inline": {"query": {"match":  {"user" : "{{username}}" }}}, "params": {"username": "john"}} 
+{"index": "_all", "types": "accounts"}
+{"inline": {"query": {"{{query_type}}": {"name": "{{name}}" }}}, "params": {"query_type": "match_phrase_prefix", "name": "Smith"}}
+{"index": "_all"}
+{"id": "template_1", "params": {"query_string": "search for these words" }} 
+{"types": "users"}
+{"file": "template_2", "params": {"field_name": "fullname", "field_value": "john smith" }} 
+
+$ curl -XGET localhost:9200/_msearch/template --data-binary "@requests"; echo
+```
+
+## Search Shards API
+search shards API 会将执行搜索请求的分片信息返回回来。这对于查找问题和优化系统有很重要的意义。
+
+```
+GET /twitter/_search_shards
+```
+
+返回的信息是这样的：
+
+```
+{
+  "nodes": ...,
+  "indices" : {
+    "twitter": { }
+  },
+  "shards": [
+    [
+      {
+        "index": "twitter",
+        "node": "JklnKbD7Tyqi9TP3_Q_tBg",
+        "primary": true,
+        "shard": 0,
+        "state": "STARTED",
+        "allocation_id": {"id":"0TvkCyF7TAmM1wHP4a42-A"},
+        "relocating_node": null
+      }
+    ],
+    [
+      {
+        "index": "twitter",
+        "node": "JklnKbD7Tyqi9TP3_Q_tBg",
+        "primary": true,
+        "shard": 1,
+        "state": "STARTED",
+        "allocation_id": {"id":"fMju3hd1QHWmWrIgFnI4Ww"},
+        "relocating_node": null
+      }
+    ],
+    [
+      {
+        "index": "twitter",
+        "node": "JklnKbD7Tyqi9TP3_Q_tBg",
+        "primary": true,
+        "shard": 2,
+        "state": "STARTED",
+        "allocation_id": {"id":"Nwl0wbMBTHCWjEEbGYGapg"},
+        "relocating_node": null
+      }
+    ],
+    [
+      {
+        "index": "twitter",
+        "node": "JklnKbD7Tyqi9TP3_Q_tBg",
+        "primary": true,
+        "shard": 3,
+        "state": "STARTED",
+        "allocation_id": {"id":"bU_KLGJISbW0RejwnwDPKw"},
+        "relocating_node": null
+      }
+    ],
+    [
+      {
+        "index": "twitter",
+        "node": "JklnKbD7Tyqi9TP3_Q_tBg",
+        "primary": true,
+        "shard": 4,
+        "state": "STARTED",
+        "allocation_id": {"id":"DMs7_giNSwmdqVukF7UydA"},
+        "relocating_node": null
+      }
+    ]
+  ]
+}
+```
+
+还可以指定routing：
+
+```
+GET /twitter/_search_shards?routing=foo,baz
+```
+
+返回结果：
+
+```
+{
+  "nodes": ...,
+  "indices" : {
+      "twitter": { }
+  },
+  "shards": [
+    [
+      {
+        "index": "twitter",
+        "node": "JklnKbD7Tyqi9TP3_Q_tBg",
+        "primary": true,
+        "shard": 0,
+        "state": "STARTED",
+        "allocation_id": {"id":"0TvkCyF7TAmM1wHP4a42-A"},
+        "relocating_node": null
+      }
+    ],
+    [
+      {
+        "index": "twitter",
+        "node": "JklnKbD7Tyqi9TP3_Q_tBg",
+        "primary": true,
+        "shard": 1,
+        "state": "STARTED",
+        "allocation_id": {"id":"fMju3hd1QHWmWrIgFnI4Ww"},
+        "relocating_node": null
+      }
+    ]
+  ]
+}
+```
+
+由于指定了routing，搜索请求将在这两个分片中执行。
+
+- routing: 由逗号分隔的，指定搜索在哪些分片上执行。
+- preference： 指定搜索在分片的哪个备份上执行。默认是在随机的备份上执行。
+- local： 布尔型，是否读取本地集群状态以确定碎片分配而不是使用主节点的集群状态。
+
+## Suggesters
+suggest功能是通过使用suggester基于所提供的文本来建议类似的术语。它可以在_search请求或_suggest中执行。
+
+```
+POST twitter/_search
+{
+  "query" : {
+    "match": {
+      "message": "tring out Elasticsearch"
+    }
+  },
+  "suggest" : {
+    "my-suggestion" : {
+      "text" : "trying out Elasticsearch",
+      "term" : {
+        "field" : "message"
+      }
+    }
+  }
+}
+```
+
+suggest请求在_suggest上执行需要省略suggest元素，suggest元素仅在suggest是搜索请求一部分时才可用。
+
+```
+POST _suggest
+{
+  "my-suggestion" : {
+    "text" : "tring out Elasticsearch",
+    "term" : {
+      "field" : "message"
+    }
+  }
+}
+```
+
+一个请求可以设置多个suggest。每个suggest可以设置不同的名字。
+```
+POST _suggest
+{
+  "my-suggest-1" : {
+    "text" : "tring out Elasticsearch",
+    "term" : {
+      "field" : "message"
+    }
+  },
+  "my-suggest-2" : {
+    "text" : "kmichy",
+    "term" : {
+      "field" : "user"
+    }
+  }
+}
+```
+
+返回结果：
+
+```
+{
+  "_shards": ...
+  "my-suggest-1": [ {
+    "text": "tring",
+    "offset": 0,
+    "length": 5,
+    "options": [ {"text": "trying", "score": 0.8, "freq": 1 } ]
+  }, {
+    "text": "out",
+    "offset": 6,
+    "length": 3,
+    "options": []
+  }, {
+    "text": "elasticsearch",
+    "offset": 10,
+    "length": 13,
+    "options": []
+  } ],
+  "my-suggest-2": ...
+}
+```
+
+为了避免重复的text，可以定义一个全局的text。
+
+```
+POST _suggest
+{
+  "text" : "tring out Elasticsearch",
+  "my-suggest-1" : {
+    "term" : {
+      "field" : "message"
+    }
+  },
+  "my-suggest-2" : {
+    "term" : {
+      "field" : "user"
+    }
+  }
+}
+```
+
+### Term suggester
+//TODO ...
+
+
+## Multi Search API
+multi search API 允许通过一个API执行多个搜索请求。使用_msearch。
+
+请求格式和bulk API类似，结构类似于下面：
+
+```
+header\n
+body\n
+header\n
+body\n
+```
+
+header部分包含了搜索哪些index，search_type，preference和routing是可选的。请求体是典型的搜索请求体：
+```
+$ cat requests
+{"index" : "test"}
+{"query" : {"match_all" : {}}, "from" : 0, "size" : 10}
+{"index" : "test", "search_type" : "dfs_query_then_fetch"}
+{"query" : {"match_all" : {}}}
+{}
+{"query" : {"match_all" : {}}}
+
+{"query" : {"match_all" : {}}}
+{"search_type" : "dfs_query_then_fetch"}
+{"query" : {"match_all" : {}}}
+
+$ curl -XGET localhost:9200/_msearch --data-binary "@requests"; echo
+```
+
+看一下上面的例子，有两个地方是没有指定header或者是{}空header的，这也是支持的。
+
+响应会返回一个responses数组，包含每一个搜索的响应和状态码，并且按照请求的顺序排列。
+
+也可以不在header中，而在URI上设置index和type：
+
+```
+$ cat requests
+{}
+{"query" : {"match_all" : {}}, "from" : 0, "size" : 10}
+{}
+{"query" : {"match_all" : {}}}
+{"index" : "test2"}
+{"query" : {"match_all" : {}}}
+
+$ curl -XGET localhost:9200/test/_msearch --data-binary @requests; echo
+```
+
+max_concurrent_searches 参数可以用在请求中，用来控制搜索的最大搜索数。默认的取决于搜索节点的线程池中线程数量。
+
+## Count API
+count API 可以执行搜索请求并且获得符合条件的结果数量。它能够跨多个index和type上执行。可以使用一个简单的查询字符串作为参数或者在request body中使用QueryDSL。
+
+```
+PUT /twitter/tweet/1?refresh
+{
+    "user": "kimchy"
+}
+
+GET /twitter/tweet/_count?q=user:kimchy
+
+GET /twitter/tweet/_count
+{
+    "query" : {
+        "term" : { "user" : "kimchy" }
+    }
+}
+```
+
+结果为：
+
+```
+{
+    "count" : 1,
+    "_shards" : {
+        "total" : 5,
+        "successful" : 5,
+        "failed" : 0
+    }
+}
+```
+
+### Request Parameters
+当使用参数q执行count时，可以传入以下参数：
+
+- df:当没传入搜索的field时，默认使用的field。
+- analyzer： 使用的分析器的名称。
+- default_operator： 默认的操作符，可以使用AND或OR，默认是OR。
+- lenient：设为true时会导致类型失败会被忽略（例如对text类型传入数字类型）。默认是false。
+- analyze_wildcard：通配符和前缀查询是否会被分析器分析。默认是false。
+- terminate_after：count到达某个值时则停止查询。如果设置了，那么在响应结果中会有一个terminated_early的boolean型来表示是否执行了terminate_after。默认是没有terminate_after的。
+
+## Validate API
+
+validate API 可以在不执行请求的情况下校验一个潜在的耗时的查询。我们可以使用下面的数据来验证一下：
+
+```
+PUT twitter/tweet/_bulk?refresh
+{"index":{"_id":1}}
+{"user" : "kimchy", "post_date" : "2009-11-15T14:12:12", "message" : "trying out Elasticsearch"}
+{"index":{"_id":2}}
+{"user" : "kimchi", "post_date" : "2009-11-15T14:12:13", "message" : "My username is similar to @kimchy!"}
+```
+
+接下来发送校验请求:
+
+```
+GET twitter/_validate/query?q=user:foo
+```
+
+响应结果是这样的：
+
+```
+{"valid":true,"_shards":{"total":1,"successful":1,"failed":0}}
+```
+
+### 参数
+
+- df:当没传入搜索的field时，默认使用的field。
+- analyzer： 使用的分析器的名称。
+- default_operator： 默认的操作符，可以使用AND或OR，默认是OR。
+- lenient：设为true时会导致类型失败会被忽略（例如对text类型传入数字类型）。默认是false。
+- analyze_wildcard：通配符和前缀查询是否会被分析器分析。默认是false。
+
+```
+GET twitter/tweet/_validate/query
+{
+  "query" : {
+    "bool" : {
+      "must" : {
+        "query_string" : {
+          "query" : "*:*"
+        }
+      },
+      "filter" : {
+        "term" : { "user" : "kimchy" }
+      }
+    }
+  }
+}
+```
+
+如果查询是无效的，那么valid会为false。例如下面的：
+
+```
+GET twitter/tweet/_validate/query?q=post_date:foo
+```
+
+由于post_date是日期类型，而查询时传入的是 foo 字符串类型，所以结果为：
+
+```
+{"valid":false,"_shards":{"total":1,"successful":1,"failed":0}}
+```
+
+将explain设置为true将会返回为什么查询是非法的信息：
+
+```
+GET twitter/tweet/_validate/query?q=post_date:foo&explain=true
+```
+
+响应是：
+
+```
+{
+  "valid" : false,
+  "_shards" : {
+    "total" : 1,
+    "successful" : 1,
+    "failed" : 0
+  },
+  "explanations" : [ {
+    "index" : "twitter",
+    "valid" : false,
+    "error" : "twitter/IAEc2nIXSSunQA_suI0MLw] QueryShardException[failed to create query:...failed to parse date field [foo]"
+  } ]
+}
+```
+
+当查询是有效的，explanation默认为该查询的字符串表示。当rewrite设置为true时，explanation会显示查询的更多细节。
+
+对于模糊查询：
+
+```
+GET twitter/tweet/_validate/query?rewrite=true
+{
+  "query": {
+    "match": {
+      "user": {
+        "query": "kimchy",
+        "fuzziness": "auto"
+      }
+    }
+  }
+}
+```
+
+响应：
+
+```
+{
+   "valid": true,
+   "_shards": {
+      "total": 1,
+      "successful": 1,
+      "failed": 0
+   },
+   "explanations": [
+      {
+         "index": "twitter",
+         "valid": true,
+         "explanation": "+user:kimchy +user:kimchi^0.75 #(ConstantScore(_type:tweet))^0.0"
+      }
+   ]
+}
+```
+
+更多的例子，像这样：
+
+```
+GET twitter/tweet/_validate/query?rewrite=true
+{
+  "query": {
+    "more_like_this": {
+      "like": {
+        "_id": "2"
+      },
+      "boost_terms": 1
+    }
+  }
+}
+```
+
+响应：
+
+```
+{
+   "valid": true,
+   "_shards": {
+      "total": 1,
+      "successful": 1,
+      "failed": 0
+   },
+   "explanations": [
+      {
+         "index": "twitter",
+         "valid": true,
+         "explanation": "((user:terminator^3.71334 plot:future^2.763601 plot:human^2.8415773 plot:sarah^3.4193945 plot:kyle^3.8244398 plot:cyborg^3.9177752 plot:connor^4.040236 plot:reese^4.7133346 ... )~6) -ConstantScore(_uid:tweet#2)) #(ConstantScore(_type:tweet))^0.0"
+      }
+   ]
+}
+```
+
+请求会执行在一个随机的分片上，因此explanation的细节取决于命中的分片，因此，同一个查询在不同的分片可能在细节上差异巨大。
+
+
+## Explain API
+explain API 可以计算出查询指定文档的分数。这个功能非常有用，它可以让我们直接知道这个查询是否和指定的文档匹配。
+
+注意，此处index和type只能是唯一的，不能是多个。
+
+```
+GET /twitter/tweet/0/_explain
+{
+      "query" : {
+        "match" : { "message" : "elasticsearch" }
+      }
+}
+```
+
+查询结果为：
+
+```
+{
+   "_index": "twitter",
+   "_type": "tweet",
+   "_id": "0",
+   "matched": true,
+   "explanation": {
+      "value": 1.55077,
+      "description": "sum of:",
+      "details": [
+         {
+            "value": 1.55077,
+            "description": "weight(message:elasticsearch in 0) [PerFieldSimilarity], result of:",
+            "details": [
+               {
+                  "value": 1.55077,
+                  "description": "score(doc=0,freq=1.0 = termFreq=1.0\n), product of:",
+                  "details": [
+                     {
+                        "value": 1.3862944,
+                        "description": "idf, computed as log(1 + (docCount - docFreq + 0.5) / (docFreq + 0.5)) from:",
+                        "details": [
+                           {
+                              "value": 1.0,
+                              "description": "docFreq",
+                              "details": []
+                           },
+                           {
+                              "value": 5.0,
+                              "description": "docCount",
+                              "details": []
+                           }
+                        ]
+                     },
+                     {
+                        "value": 1.1186441,
+                        "description": "tfNorm, computed as (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * fieldLength / avgFieldLength)) from:",
+                        "details": [
+                           {
+                              "value": 1.0,
+                              "description": "termFreq=1.0",
+                              "details": []
+                           },
+                           {
+                              "value": 1.2,
+                              "description": "parameter k1",
+                              "details": []
+                           },
+                           {
+                              "value": 0.75,
+                              "description": "parameter b",
+                              "details": []
+                           },
+                           {
+                              "value": 5.4,
+                              "description": "avgFieldLength",
+                              "details": []
+                           },
+                           {
+                              "value": 4.0,
+                              "description": "fieldLength",
+                              "details": []
+                           }
+                        ]
+                     }
+                  ]
+               }
+            ]
+         },
+         {
+            "value": 0.0,
+            "description": "match on required clause, product of:",
+            "details": [
+               {
+                  "value": 0.0,
+                  "description": "# clause",
+                  "details": []
+               },
+               {
+                  "value": 1.0,
+                  "description": "*:*, product of:",
+                  "details": [
+                     {
+                        "value": 1.0,
+                        "description": "boost",
+                        "details": []
+                     },
+                     {
+                        "value": 1.0,
+                        "description": "queryNorm",
+                        "details": []
+                     }
+                  ]
+               }
+            ]
+         }
+      ]
+   }
+}
+```
+
+也可以使用q参数来进行查询：
+
+```
+GET /twitter/tweet/0/_explain?q=message:search
+```
+
+- source: 设为true可以返回查询到的_source文档。还可以通过_source_include和_source_exclude来决定查询哪些文档。
+
+- stored_fields： 允许控制哪些存储的字段会作为explained的文档。
+
+- routing： 控制使用哪个路由。
+
+- parent：和routing使用方式一样。
+
+- preference： 控制在哪个分片上执行explain。
+
+- source： 可以在请求体进行查询。
+
+- q： 查询字符串。
+
+- df： 默认的用来进行查询的field。默认为_all。
+
+- analyzer： 查询分析器的名称。
+
+- analyze_wildcard： 是否可以使用通配符或前缀进行查询，默认是false。
+
+- lenient： 是否忽略类型匹配异常。默认是false。
+
+- default_operator： 默认的逻辑操作符，可以是AND或OR，默认是OR。
+
+
+
+  
+
+
 
 
 
